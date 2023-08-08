@@ -19,6 +19,7 @@ struct Cli {
 enum SubCommand {
     /// Issue a server side VQL query
     Query(QueryCmd),
+    /// Fetch a file from server
     Fetch(FetchCmd),
 }
 
@@ -30,7 +31,7 @@ struct QueryCmd {
     /// Add query environment values in the form of Key=Value
     #[clap(long,value_parser=parse_key_val::<String,String>)]
     env: Vec<(String, String)>,
-    /// The query to run
+    /// The queries to run
     #[clap(value_parser)]
     query: Vec<String>,
 }
@@ -38,8 +39,11 @@ struct QueryCmd {
 #[derive(clap::Args, Clone, Debug)]
 struct FetchCmd {
     #[clap(long)]
+    /// Name of (local) output file
     output_file: PathBuf,
     #[clap(value_parser)]
+    /// Name of (remote) file, usually in the form of
+    /// downloads/C.XXXXXXXXXXXXXXXX/F.YYYYYYYYYYYYY/HOSTNAME-C.XXXXXXXXXXXXXXXX-F.YYYYYYYYYYYYY.zip
     path: PathBuf,
 }
 
