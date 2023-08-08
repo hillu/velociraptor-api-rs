@@ -32,3 +32,9 @@ path = "src/lib.rs"
 name = "velociraptor-client"
 path = "src/client/main.rs"
 
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
