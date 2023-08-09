@@ -5,7 +5,10 @@ use tokio_stream::StreamExt;
 
 use builder_pattern::Builder;
 use serde::Deserialize;
-use tonic::transport::{Certificate, ClientTlsConfig, Endpoint, Identity, Uri};
+use tonic::{
+    transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity, Uri},
+    IntoRequest,
+};
 
 use proto::*;
 mod proto;
@@ -110,6 +113,10 @@ impl From<&[String]> for QueryList {
 }
 
 impl Client {
+    async fn api_client(&self) -> Result<ApiClient<Channel>, Box<dyn std::error::Error>> {
+        Ok(ApiClient::new(self.endpoint.connect().await?))
+    }
+
     /// Issue a server-side VQL query
     pub async fn query(
         &self,
@@ -131,14 +138,19 @@ impl Client {
             .collect();
         let max_row = options.max_row;
 
-        let mut response = ApiClient::new(self.endpoint.connect().await?)
-            .query(tonic::Request::new(VqlCollectorArgs {
-                env,
-                org_id,
-                max_row,
-                query,
-                ..VqlCollectorArgs::default()
-            }))
+        let mut response = self
+            .api_client()
+            .await?
+            .query(
+                VqlCollectorArgs {
+                    env,
+                    org_id,
+                    max_row,
+                    query,
+                    ..VqlCollectorArgs::default()
+                }
+                .into_request(),
+            )
             .await?
             .into_inner();
 
@@ -158,11 +170,12 @@ impl Client {
 
         Ok(result)
     }
+
+    /// Fetch downloadable file from Velociraptor server
     pub async fn fetch<P: AsRef<Path>>(
         &self,
         path: P,
     ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-        let mut offset = 0;
         let components: Vec<_> = path
             .as_ref()
             .components()
@@ -172,19 +185,23 @@ impl Client {
             })
             .collect();
 
-        let mut channel = ApiClient::new(self.endpoint.connect().await?);
+        let request = VfsFileBuffer {
+            components,
+            length: 1024,
+            ..VfsFileBuffer::default()
+        };
 
-        let mut buf = vec![];
-
-        let length = 1024;
+        let mut api_client = self.api_client().await?;
+        let (mut buf, mut offset) = (vec![], 0);
         loop {
-            let response = channel
-                .vfs_get_buffer(tonic::Request::new(VfsFileBuffer {
-                    components: components.clone(),
-                    length,
-                    offset,
-                    ..VfsFileBuffer::default()
-                }))
+            let response = api_client
+                .vfs_get_buffer(
+                    VfsFileBuffer {
+                        offset,
+                        ..request.clone()
+                    }
+                    .into_request(),
+                )
                 .await?
                 .into_inner();
 
