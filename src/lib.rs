@@ -4,7 +4,7 @@ use std::path::{Component, Path};
 use tokio_stream::StreamExt;
 
 use builder_pattern::Builder;
-use serde::Deserialize;
+use serde::{de::DeserializeOwned, Deserialize};
 use tonic::{
     transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity, Uri},
     IntoRequest,
@@ -112,17 +112,17 @@ impl From<&[String]> for QueryList {
     }
 }
 
-impl Client {
+impl<'a> Client {
     async fn api_client(&self) -> Result<ApiClient<Channel>, Box<dyn std::error::Error>> {
         Ok(ApiClient::new(self.endpoint.connect().await?))
     }
 
     /// Issue a server-side VQL query
-    pub async fn query(
+    pub async fn query<T: DeserializeOwned>(
         &self,
         queries: impl Into<QueryList>,
         options: &QueryOptions,
-    ) -> Result<BTreeMap<String, Vec<serde_json::Value>>, Box<dyn std::error::Error>> {
+    ) -> Result<BTreeMap<String, Vec<T>>, Box<dyn std::error::Error>> {
         let env = options
             .env
             .iter()
@@ -154,17 +154,17 @@ impl Client {
             .await?
             .into_inner();
 
-        let mut result: BTreeMap<String, Vec<serde_json::Value>> = BTreeMap::new();
+        let mut result: BTreeMap<String, Vec<T>> = BTreeMap::new();
         while let Some(Ok(msg)) = response.next().await {
             if !msg.response.is_empty() {
-                let mut rows: Vec<serde_json::Value> = serde_json::from_str(&msg.response)?;
+                let mut rows: Vec<T> = serde_json::from_str(&msg.response)?;
                 result
                     .entry(msg.query.unwrap().name)
                     .and_modify(|r| r.append(&mut rows))
                     .or_insert(rows);
             }
             if !msg.log.is_empty() {
-                // print!("Log: {}", msg.log);
+                // log::trace!("{}", msg.log);
             }
         }
 

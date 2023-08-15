@@ -5,6 +5,8 @@ use clap::Parser;
 
 use velociraptor_api::{Client, ClientConfig, QueryOptions};
 
+use serde_json;
+
 #[derive(Parser, Debug, Clone)]
 #[clap(version, about)]
 struct Cli {
@@ -72,7 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.sub {
         SubCommand::Query(ref cmd) => {
             let result = client
-                .query(
+                .query::<serde_json::Value>(
                     cmd.query.as_slice(),
                     &QueryOptions::new()
                         .env(cmd.env.as_ref())
@@ -80,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         .build(),
                 )
                 .await?;
-            println!("Result:\n{}\n", serde_json::to_string_pretty(&result)?);
+            println!("{}", serde_json::to_string_pretty(&result)?);
         }
         SubCommand::Fetch(ref cmd) => {
             let buf = client.fetch(&cmd.path).await?;
