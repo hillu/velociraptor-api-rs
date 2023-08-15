@@ -5,8 +5,6 @@ use clap::Parser;
 
 use velociraptor_api::{Client, ClientConfig, QueryOptions};
 
-use serde_json;
-
 #[derive(Parser, Debug, Clone)]
 #[clap(version, about)]
 struct Cli {
