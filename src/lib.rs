@@ -1,4 +1,3 @@
-use std::collections::BTreeMap;
 use std::path::{Component, Path};
 
 use tokio_stream::StreamExt;
@@ -79,39 +78,6 @@ pub struct QueryOptions {
     max_row: u64,
 }
 
-pub struct QueryList(Vec<(String, String)>);
-
-impl From<&str> for QueryList {
-    fn from(item: &str) -> Self {
-        Self(vec![("query".to_string(), item.to_string())])
-    }
-}
-
-impl From<String> for QueryList {
-    fn from(item: String) -> Self {
-        Self::from(item.as_str())
-    }
-}
-
-impl From<&[(String, String)]> for QueryList {
-    fn from(items: &[(String, String)]) -> Self {
-        Self(items.to_vec())
-    }
-}
-
-impl From<&[String]> for QueryList {
-    fn from(items: &[String]) -> Self {
-        Self(
-            items
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(n, s)| (format!("query-{}", n), s))
-                .collect(),
-        )
-    }
-}
-
 impl<'a> Client {
     async fn api_client(&self) -> Result<ApiClient<Channel>, Box<dyn std::error::Error>> {
         Ok(ApiClient::new(self.endpoint.connect().await?))
@@ -120,9 +86,9 @@ impl<'a> Client {
     /// Issue a server-side VQL query
     pub async fn query<T: DeserializeOwned>(
         &self,
-        queries: impl Into<QueryList>,
+        query: &str,
         options: &QueryOptions,
-    ) -> Result<BTreeMap<String, Vec<T>>, Box<dyn std::error::Error>> {
+    ) -> Result<Vec<T>, Box<dyn std::error::Error>> {
         let env = options
             .env
             .iter()
@@ -130,12 +96,7 @@ impl<'a> Client {
             .map(|(key, value)| VqlEnv { key, value })
             .collect::<Vec<_>>();
         let org_id = options.org_id.clone().unwrap_or_default().clone();
-        let query = queries
-            .into()
-            .0
-            .into_iter()
-            .map(|(name, vql)| VqlRequest { name, vql })
-            .collect();
+        let query = vec!(VqlRequest{ name: "".into(), vql: query.into() });
         let max_row = options.max_row;
 
         let mut response = self
@@ -154,14 +115,10 @@ impl<'a> Client {
             .await?
             .into_inner();
 
-        let mut result: BTreeMap<String, Vec<T>> = BTreeMap::new();
+        let mut result = vec![];
         while let Some(Ok(msg)) = response.next().await {
             if !msg.response.is_empty() {
-                let mut rows: Vec<T> = serde_json::from_str(&msg.response)?;
-                result
-                    .entry(msg.query.unwrap().name)
-                    .and_modify(|r| r.append(&mut rows))
-                    .or_insert(rows);
+                result.append(&mut serde_json::from_str(&msg.response)?);
             }
             if !msg.log.is_empty() {
                 // log::trace!("{}", msg.log);

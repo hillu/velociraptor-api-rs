@@ -33,9 +33,9 @@ struct QueryCmd {
     /// Add query environment values in the form of Key=Value
     #[clap(long,value_parser=parse_key_val::<String,String>)]
     env: Vec<(String, String)>,
-    /// The queries to run
+    /// The query to run
     #[clap(value_parser)]
-    query: Vec<String>,
+    query: String,
 }
 
 #[derive(clap::Args, Clone, Debug)]
@@ -75,7 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         SubCommand::Query(ref cmd) => {
             let result = client
                 .query::<serde_json::Value>(
-                    cmd.query.as_slice(),
+                    &cmd.query,
                     &QueryOptions::new()
                         .env(cmd.env.as_ref())
                         .org_id(cmd.org.clone())
