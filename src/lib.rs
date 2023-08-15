@@ -9,10 +9,12 @@ use tonic::{
     IntoRequest,
 };
 
+use log;
+
 use proto::*;
 mod proto;
 
-use api_client::ApiClient;
+use api_client;
 
 /// Client configuration for the Velociraptor gRPC API
 #[allow(dead_code)]
@@ -78,9 +80,11 @@ pub struct QueryOptions {
     max_row: u64,
 }
 
-impl<'a> Client {
-    async fn api_client(&self) -> Result<ApiClient<Channel>, Box<dyn std::error::Error>> {
-        Ok(ApiClient::new(self.endpoint.connect().await?))
+impl Client {
+    async fn api_client(
+        &self,
+    ) -> Result<api_client::ApiClient<Channel>, Box<dyn std::error::Error>> {
+        Ok(api_client::ApiClient::new(self.endpoint.connect().await?))
     }
 
     /// Issue a server-side VQL query
@@ -124,7 +128,7 @@ impl<'a> Client {
                 result.append(&mut serde_json::from_str(&msg.response)?);
             }
             if !msg.log.is_empty() {
-                // log::trace!("{}", msg.log);
+                log::debug!("{}", msg.log.to_string().trim());
             }
         }
 

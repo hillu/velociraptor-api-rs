@@ -67,6 +67,8 @@ where
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    env_logger::init();
+
     let client = Client::try_from(&ClientConfig::from_yaml_file(cli.config.clone())?)?;
 
     match cli.sub {
