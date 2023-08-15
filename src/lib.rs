@@ -9,12 +9,8 @@ use tonic::{
     IntoRequest,
 };
 
-use log;
-
 use proto::*;
 mod proto;
-
-use api_client;
 
 /// Client configuration for the Velociraptor gRPC API
 #[allow(dead_code)]
@@ -125,6 +121,7 @@ impl Client {
         let mut result = vec![];
         while let Some(Ok(msg)) = response.next().await {
             if !msg.response.is_empty() {
+                log::trace!("result {}", &msg.response);
                 result.append(&mut serde_json::from_str(&msg.response)?);
             }
             if !msg.log.is_empty() {
