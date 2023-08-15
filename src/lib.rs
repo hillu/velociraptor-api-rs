@@ -96,7 +96,10 @@ impl<'a> Client {
             .map(|(key, value)| VqlEnv { key, value })
             .collect::<Vec<_>>();
         let org_id = options.org_id.clone().unwrap_or_default().clone();
-        let query = vec!(VqlRequest{ name: "".into(), vql: query.into() });
+        let query = vec![VqlRequest {
+            name: "".into(),
+            vql: query.into(),
+        }];
         let max_row = options.max_row;
 
         let mut response = self
