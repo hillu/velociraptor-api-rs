@@ -2,18 +2,33 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use tokio::time::sleep;
+
 use clap::Parser;
 
 use velociraptor_api::{Client, ClientConfig, QueryOptions};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
+fn config_yml_file(i: Option<String>) -> PathBuf {
+    let mut f = dirs::config_dir().unwrap();
+    f.push("velociraptor");
+    if let Some(i) = i {
+        f.push(format!("apiclient-{i}.yaml"));
+    } else {
+        f.push("apiclient.yaml");
+    }
+    f
+}
+
 #[derive(Parser, Debug, Clone)]
 #[clap(version, about)]
 struct Cli {
     #[clap(long)]
     /// Path to the API client config. You can generate such a file with "velociraptor config api_client"
-    config: PathBuf,
+    config: Option<PathBuf>,
+    #[clap(long)]
+    instance: Option<String>,
     #[clap(subcommand)]
     sub: SubCommand,
 }
@@ -173,7 +188,7 @@ async fn fetch_flow_log(
             )
             .await?;
         if result.is_empty() {
-            std::thread::sleep(Duration::from_millis(100));
+            sleep(Duration::from_millis(100)).await;
             log::debug!("Retrying...");
         } else {
             return Ok(result);
@@ -200,17 +215,30 @@ async fn fetch_flow<T: DeserializeOwned>(
         .build();
 
     loop {
+        log::debug!("Looking for {} / {} ...", client_id, flow_id);
         let status = client
             .query::<FlowStatus>(
                 r#"SELECT * from flows(client_id = client_id, flow_id = flow_id)"#,
                 &options,
             )
             .await?;
-        if status.get(0).cloned().unwrap_or_default().state != "RUNNING" {
+        let state = status.get(0).cloned().unwrap_or_default().state;
+        log::debug!("state( {client_id} , {flow_id} ): {state}");
+        if state != "RUNNING" {
             break;
         }
-        std::thread::sleep(Duration::from_millis(100));
+        sleep(Duration::from_millis(100)).await;
     }
+
+    sleep(Duration::from_millis(1000)).await;
+
+    let dbgresult = client
+        .query::<serde_json::Value>(
+            r#"SELECT * from flow_results(client_id=client_id, flow_id=flow_id)"#,
+            &options,
+        )
+        .await?;
+    log::debug!("json repr = {:?}", dbgresult);
 
     let result = client
         .query::<T>(
@@ -221,7 +249,7 @@ async fn fetch_flow<T: DeserializeOwned>(
     return Ok(result);
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 struct ShellResult {
     #[serde(rename = "Stdout")]
     stdout: String,
@@ -229,6 +257,8 @@ struct ShellResult {
     stderr: String,
     #[serde(rename = "ReturnCode")]
     returncode: i32,
+    #[serde(rename = "Complete")]
+    finished: bool,
 }
 
 impl ShellResult {
@@ -245,7 +275,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     env_logger::init();
 
-    let client = Client::try_from(&ClientConfig::from_yaml_file(cli.config.clone())?)?;
+    let client_yaml: PathBuf = match (cli.config, cli.instance) {
+        (Some(c), None) => PathBuf::from(c),
+        (None, x) => config_yml_file(x),
+        _ => return Err("can't use config and instance simultaneously".into()),
+    };
+
+    let client = Client::try_from(&ClientConfig::from_yaml_file(&client_yaml).map_err(|e| {
+        format!(
+            "read config: {} {}",
+            client_yaml.to_string_lossy(),
+            e.to_string()
+        )
+    })?)?;
 
     match cli.sub {
         SubCommand::Query(ref cmd) => {
@@ -319,7 +361,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let flow_id =
                 schedule_flow(&client, &client_id, "Linux.Sys.BashShell", &cmd.command).await?;
             log::debug!("Flow ID: {}", flow_id);
-            fetch_flow(&client, &client_id, &flow_id)
+            fetch_flow::<ShellResult>(&client, &client_id, &flow_id)
                 .await?
                 .into_iter()
                 .fold::<ShellResult, _>(ShellResult::default(), |acc, item: ShellResult| {

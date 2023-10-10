@@ -14,6 +14,7 @@ categories = ["api-bindings", "command-line-utilities"]
 [dependencies]
 builder-pattern = "0.4.2"
 clap = { version = "3", default_features = false, features = ["std", "derive"] }
+dirs = "5.0.1"
 env_logger = "0.10.0"
 log = "0.4.19"
 prost = "0.11"
