@@ -95,7 +95,7 @@ impl Client {
             .cloned()
             .map(|(key, value)| VqlEnv { key, value })
             .collect::<Vec<_>>();
-        let org_id = options.org_id.clone().unwrap_or_default().clone();
+        let org_id = options.org_id.clone().unwrap_or_default();
         let query = vec![VqlRequest {
             name: "".into(),
             vql: query.into(),
@@ -121,11 +121,14 @@ impl Client {
         let mut result = vec![];
         while let Some(Ok(msg)) = response.next().await {
             if !msg.response.is_empty() {
-                log::trace!("result {}", &msg.response);
+                log::trace!("result = {}", &msg.response);
                 result.append(&mut serde_json::from_str(&msg.response)?);
             }
             if !msg.log.is_empty() {
-                log::debug!("{}", msg.log.to_string().trim());
+                log::debug!("log = {}", msg.log.to_string().trim());
+                if msg.log.starts_with("VQL Error:") {
+                    return Err(msg.log.into());
+                }
             }
         }
 

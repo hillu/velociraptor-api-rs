@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use clap::Parser;
 
@@ -144,11 +145,52 @@ async fn schedule_flow(
     Ok(requests[0].request.flow_id.clone())
 }
 
+#[derive(Deserialize)]
+struct FlowLog {
+    client_time: u64,
+    level: String,
+    message: String,
+}
+
+async fn fetch_flow_log(
+    client: &Client,
+    client_id: &str,
+    flow_id: &str,
+) -> Result<Vec<FlowLog>, Box<dyn std::error::Error>> {
+    let options = QueryOptions::new()
+        .env(vec![
+            ("client_id".into(), client_id.into()),
+            ("flow_id".into(), flow_id.into()),
+        ])
+        .org_id("".to_string())
+        .build();
+    let mut result;
+    loop {
+        result = client
+            .query(
+                r#"SELECT * from flow_logs(client_id = client_id, flow_id = flow_id)"#,
+                &options,
+            )
+            .await?;
+        if result.is_empty() {
+            std::thread::sleep(Duration::from_millis(100));
+            log::debug!("Retrying...");
+        } else {
+            return Ok(result);
+        }
+    }
+}
+
 async fn fetch_flow<T: DeserializeOwned>(
     client: &Client,
     client_id: &str,
     flow_id: &str,
 ) -> Result<Vec<T>, Box<dyn std::error::Error>> {
+    #[derive(Clone, Default, Deserialize)]
+    struct FlowStatus {
+        state: String, // UNSET, RUNNING, FINISHED, ERROR
+    }
+
     let options = QueryOptions::new()
         .env(vec![
             ("client_id".into(), client_id.into()),
@@ -157,22 +199,26 @@ async fn fetch_flow<T: DeserializeOwned>(
         .org_id("".to_string())
         .build();
 
-    let mut result: Vec<T>;
     loop {
-        result = client
-            .query(
-                r#"SELECT * from flow_results(client_id = client_id, flow_id = flow_id)"#,
+        let status = client
+            .query::<FlowStatus>(
+                r#"SELECT * from flows(client_id = client_id, flow_id = flow_id)"#,
                 &options,
             )
             .await?;
-        if result.is_empty() {
-            use std::time::Duration;
-            std::thread::sleep(Duration::from_millis(100));
-            log::debug!("Retrying...");
-        } else {
-            return Ok(result);
+        if status.get(0).cloned().unwrap_or_default().state != "RUNNING" {
+            break;
         }
+        std::thread::sleep(Duration::from_millis(100));
     }
+
+    let result = client
+        .query::<T>(
+            r#"SELECT * from flow_results(client_id = client_id, flow_id = flow_id)"#,
+            &options,
+        )
+        .await?;
+    return Ok(result);
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -221,6 +267,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let flow_id =
                 schedule_flow(&client, &client_id, "Generic.Client.VQL", &cmd.query).await?;
             log::debug!("Flow ID: {}", flow_id);
+            // FIXME: Use select?
+            // FIXME: Use SELECT state FROM flows()?
+            let log = fetch_flow_log(&client, &client_id, &flow_id).await?;
+            let mut err = false;
+            for entry in log {
+                if entry.level == "ERROR" || entry.level == "WARN" {
+                    let timestamp =
+                        time::OffsetDateTime::from_unix_timestamp(entry.client_time as _).unwrap();
+                    writeln!(
+                        std::io::stderr(),
+                        "{} {}: {}",
+                        timestamp,
+                        entry.level,
+                        entry.message
+                    )?;
+                }
+                if entry.level == "ERROR" {
+                    err = true;
+                }
+            }
+            if err {
+                return Err(format!("Flow {} failed.", &flow_id).into());
+            }
             let result: Vec<serde_json::Value> = fetch_flow(&client, &client_id, &flow_id).await?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
