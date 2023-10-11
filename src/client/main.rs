@@ -230,23 +230,21 @@ async fn fetch_flow<T: DeserializeOwned>(
         sleep(Duration::from_millis(100)).await;
     }
 
-    sleep(Duration::from_millis(1000)).await;
-
-    let dbgresult = client
-        .query::<serde_json::Value>(
-            r#"SELECT * from flow_results(client_id=client_id, flow_id=flow_id)"#,
-            &options,
-        )
-        .await?;
-    log::debug!("json repr = {:?}", dbgresult);
-
-    let result = client
-        .query::<T>(
-            r#"SELECT * from flow_results(client_id = client_id, flow_id = flow_id)"#,
-            &options,
-        )
-        .await?;
-    return Ok(result);
+    loop {
+        log::debug!("trying to fetch result for {client_id} , {flow_id}");
+        let result = client
+            .query::<T>(
+                r#"SELECT * from flow_results(client_id = client_id, flow_id = flow_id)"#,
+                &options,
+            )
+            .await?;
+        if result.len() > 0 {
+            log::debug!("done!");
+            return Ok(result);
+        }
+        log::debug!("sleep...");
+        sleep(Duration::from_millis(100)).await;
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Default)]
