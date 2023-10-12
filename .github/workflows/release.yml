@@ -19,26 +19,14 @@ jobs:
           fi
           echo "git_version=$version_git" >> $GITHUB_OUTPUT
       - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: true
-          prerelease: false
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      git_version: ${{ steps.get_version.outputs.git_version }}
+        uses: softprops/action-gh-release@v1
 
   build_static_musl:
     needs: prep
     runs-on: ubuntu-latest
     container: alpine:3.18
     steps:
-      - run: |
-          apk add build-base protobuf-dev
+      - run: apk add bash curl build-base protobuf-dev
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - uses: dtolnay/rust-toolchain@stable
@@ -46,12 +34,11 @@ jobs:
           toolchain: stable
       - run: |
           RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target=x86_64-unknown-linux-musl
+          ref=$(echo '${{ github.ref }}' | sed -e s,refs/tags/,, )
+          ln target/x86_64-unknown-linux-musl/release/velociraptor-client \
+              velociraptor-client-${ref}-x86_64-musl
       - name: Upload Release Asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
-          upload_url: ${{ needs.prep.outputs.upload_url }}
-          asset_path: target/x86_64-unknown-linux-musl/release/velociraptor-client
-          asset_name: velociraptor-client-${{ needs.prep.outputs.git_version }}-x86_64-musl
-          asset_content_type: application/octet-stream
+          files: |
+            velociraptor-client-*

@@ -7,7 +7,7 @@ description = "API client for Velociraptor (https://github.com/Velocidex/velocir
 homepage = "https://github.com/hillu/velociraptor-api-rs"
 repository = "https://github.com/hillu/velociraptor-api-rs"
 license = "LGPL-3.0-or-later"
-publish = false
+publish = true
 keywords = ["cli", "api", "forensic", "command-line"]
 categories = ["api-bindings", "command-line-utilities"]
 
