@@ -238,7 +238,7 @@ async fn fetch_flow<T: DeserializeOwned>(
                 &options,
             )
             .await?;
-        if result.len() > 0 {
+        if !result.is_empty() {
             log::debug!("done!");
             return Ok(result);
         }
@@ -274,18 +274,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init();
 
     let client_yaml: PathBuf = match (cli.config, cli.instance) {
-        (Some(c), None) => PathBuf::from(c),
+        (Some(c), None) => c,
         (None, x) => config_yml_file(x),
         _ => return Err("can't use config and instance simultaneously".into()),
     };
 
-    let client = Client::try_from(&ClientConfig::from_yaml_file(&client_yaml).map_err(|e| {
-        format!(
-            "read config: {} {}",
-            client_yaml.to_string_lossy(),
-            e.to_string()
-        )
-    })?)?;
+    let client = Client::try_from(
+        &ClientConfig::from_yaml_file(&client_yaml)
+            .map_err(|e| format!("read config: {} {}", client_yaml.to_string_lossy(), e))?,
+    )?;
 
     match cli.sub {
         SubCommand::Query(ref cmd) => {
