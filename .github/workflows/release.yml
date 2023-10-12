@@ -7,7 +7,7 @@ jobs:
   prep:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
       - name: Get Version
         id: get_version
         run: |
@@ -39,8 +39,9 @@ jobs:
     steps:
       - run: |
           apk add build-base protobuf-dev
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
       - run: |
