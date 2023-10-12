@@ -1,0 +1,56 @@
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Get Version
+        id: get_version
+        run: |
+          version_git=$(echo "$GITHUB_REF" | sed -e 's/refs\/tags\///')
+          version_cargo="v$(cargo read-manifest | jq -r '.version')"
+          if [ "$version_git" != "$version_cargo" ]; then
+              echo "git != cargo: $version_git != $version_cargo" >&2
+              exit 1
+          fi
+          echo "git_version=$version_git" >> $GITHUB_OUTPUT
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: true
+          prerelease: false
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      git_version: ${{ steps.get_version.outputs.git_version }}
+
+  build_static_musl:
+    needs: prep
+    runs-on: ubuntu-latest
+    container: alpine:3.18
+    steps:
+      - run: |
+          apk add build-base protobuf-dev
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: |
+          RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target=x86_64-unknown-linux-musl
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.prep.outputs.upload_url }}
+          asset_path: target/x86_64-unknown-linux-musl/release/velociraptor-client
+          asset_name: velociraptor-client-${{ needs.prep.outputs.git_version }}-x86_64-musl
+          asset_content_type: application/octet-stream
