@@ -1,7 +1,5 @@
 on:
-  push:
-    tags:
-      - "v*"
+  push
 
 jobs:
   prep:
@@ -21,10 +19,44 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@v1
 
-  build_static_musl:
+  build_windows:
+    runs-on: windows-latest
     needs: prep
+    steps:
+      - run: choco install rust protoc
+      - uses: actions/checkout@v4
+      - run: |
+          cargo build --release --target=x86_64-pc-windows-gnu
+          # ref=$(echo '${{ github.ref }}' | sed -e s,refs/tags/,, )
+          ln target/x86_64-pc-windows-gnu/release/velociraptor-client.exe \
+              velociraptor-client-x86_64-windows.exe
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            velociraptor-client-*
+
+  build_macosx:
+    runs-on: macos-latest
+    needs: prep
+    steps:
+      - run: brew install rust protobuf
+      - uses: actions/checkout@v4
+      - run: |
+          cargo build --release --target=x86_64-apple-darwin
+          # ref=$(echo '${{ github.ref }}' | sed -e s,refs/tags/,, )
+          ln target/x86_64-apple-darwin/release/velociraptor-client \
+              velociraptor-client-x86_64-darwin
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            velociraptor-client-*
+      
+  build_static_musl:
     runs-on: ubuntu-latest
     container: alpine:3.18
+    needs: prep
     steps:
       - run: apk add bash curl build-base protobuf-dev
       - uses: actions/checkout@v4
@@ -34,9 +66,9 @@ jobs:
           toolchain: stable
       - run: |
           RUSTFLAGS='-C target-feature=+crt-static' cargo build --release --target=x86_64-unknown-linux-musl
-          ref=$(echo '${{ github.ref }}' | sed -e s,refs/tags/,, )
+          # ref=$(echo '${{ github.ref }}' | sed -e s,refs/tags/,, )
           ln target/x86_64-unknown-linux-musl/release/velociraptor-client \
-              velociraptor-client-${ref}-x86_64-musl
+              velociraptor-client-x86_64-linux-musl
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v1
         with:
