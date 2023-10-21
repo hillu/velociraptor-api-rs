@@ -1,13 +1,16 @@
 use std::path::{Component, Path};
 
+use serde::{de::DeserializeOwned, Deserialize};
+
+use tokio::time::{sleep, Duration};
 use tokio_stream::StreamExt;
 
-use typed_builder::TypedBuilder;
-use serde::{de::DeserializeOwned, Deserialize};
 use tonic::{
     transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity, Uri},
     IntoRequest,
 };
+
+use typed_builder::TypedBuilder;
 
 use proto::*;
 mod proto;
@@ -176,4 +179,136 @@ impl APIClient {
         }
         Ok(buf)
     }
+
+    pub async fn schedule_client_flow(
+        &self,
+        client_id: &str,
+        artifact: &str,
+        cmd: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        #[derive(Deserialize)]
+        struct Request {
+            flow_id: String,
+        }
+        #[derive(Deserialize)]
+        struct Submit {
+            request: Request,
+        }
+
+        let env = vec![
+            ("client_id".to_string(), client_id.to_string()),
+            ("artifact".to_string(), artifact.to_string()),
+            ("Command".to_string(), cmd.to_string()),
+        ];
+        let requests: Vec<Submit> = self
+            .query(
+                r#"SELECT
+               collect_client(client_id=client_id,
+                              artifacts=artifact,
+                              env=dict(Command=Command))
+               AS request
+               FROM scope()"#,
+                &QueryOptions::builder()
+                    .env(env.as_slice())
+                    .org_id("".to_string())
+                    .build(),
+            )
+            .await?;
+        Ok(requests[0].request.flow_id.clone())
+    }
+
+    pub async fn fetch_client_flow<T: DeserializeOwned>(
+        &self,
+        client_id: &str,
+        flow_id: &str,
+    ) -> Result<Vec<T>, Box<dyn std::error::Error>> {
+        #[derive(Clone, Default, Deserialize)]
+        struct FlowStatus {
+            state: String, // UNSET, RUNNING, FINISHED, ERROR
+        }
+
+        let options = QueryOptions::builder()
+            .env(vec![
+                ("client_id".into(), client_id.into()),
+                ("flow_id".into(), flow_id.into()),
+            ])
+            .org_id("".to_string())
+            .build();
+
+        loop {
+            log::debug!("Looking for {} / {} ...", client_id, flow_id);
+            let status = self
+                .query::<FlowStatus>(
+                    r#"SELECT * from flows(client_id = client_id, flow_id = flow_id)"#,
+                    &options,
+                )
+                .await?;
+            let state = status.get(0).cloned().unwrap_or_default().state;
+            log::debug!("state( {client_id} , {flow_id} ): {state}");
+            if state != "RUNNING" {
+                break;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
+
+        loop {
+            log::debug!("trying to fetch result for {client_id} , {flow_id}");
+            let result = self
+                .query::<T>(
+                    r#"SELECT * from flow_results(client_id = client_id, flow_id = flow_id)"#,
+                    &options,
+                )
+                .await?;
+            if !result.is_empty() {
+                log::debug!("done!");
+                return Ok(result);
+            }
+            log::debug!("sleep...");
+            sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    pub async fn fetch_client_flow_log(
+        &self,
+        client_id: &str,
+        flow_id: &str,
+    ) -> Result<Vec<FlowLog>, Box<dyn std::error::Error>> {
+        let options = QueryOptions::builder()
+            .env(vec![
+                ("client_id".into(), client_id.into()),
+                ("flow_id".into(), flow_id.into()),
+            ])
+            .org_id("".to_string())
+            .build();
+        let mut result: Vec<FlowLog>;
+        loop {
+            result = self
+                .query(
+                    r#"SELECT * from flow_logs(client_id = client_id, flow_id = flow_id)"#,
+                    &options,
+                )
+                .await?;
+            if result.is_empty() {
+                sleep(Duration::from_millis(100)).await;
+                log::debug!("Retrying...");
+            } else {
+                for r in &result {
+                    log::debug!(
+                        "flow_log({client_id}/{flow_id}): {} {}: {}",
+                        r.client_time,
+                        r.level,
+                        r.message
+                    );
+                }
+                return Ok(result);
+            }
+        }
+    }
+}
+
+#[derive(Deserialize)]
+pub struct FlowLog {
+    pub client_time: u64,
+    pub level: String,
+    pub message: String,
 }
