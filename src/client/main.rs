@@ -6,7 +6,7 @@ use tokio::time::sleep;
 
 use clap::Parser;
 
-use velociraptor_api::{Client, ClientConfig, QueryOptions};
+use velociraptor_api::{APIClient, APIClientConfig, QueryOptions};
 
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
@@ -124,7 +124,7 @@ where
 }
 
 async fn schedule_flow(
-    client: &Client,
+    api_client: &APIClient,
     client_id: &str,
     artifact: &str,
     cmd: &str,
@@ -143,7 +143,7 @@ async fn schedule_flow(
         ("artifact".to_string(), artifact.to_string()),
         ("Command".to_string(), cmd.to_string()),
     ];
-    let requests: Vec<Submit> = client
+    let requests: Vec<Submit> = api_client
         .query(
             r#"SELECT
                collect_client(client_id=client_id,
@@ -168,7 +168,7 @@ struct FlowLog {
 }
 
 async fn fetch_flow_log(
-    client: &Client,
+    api_client: &APIClient,
     client_id: &str,
     flow_id: &str,
 ) -> Result<Vec<FlowLog>, Box<dyn std::error::Error>> {
@@ -181,7 +181,7 @@ async fn fetch_flow_log(
         .build();
     let mut result;
     loop {
-        result = client
+        result = api_client
             .query(
                 r#"SELECT * from flow_logs(client_id = client_id, flow_id = flow_id)"#,
                 &options,
@@ -197,7 +197,7 @@ async fn fetch_flow_log(
 }
 
 async fn fetch_flow<T: DeserializeOwned>(
-    client: &Client,
+    api_client: &APIClient,
     client_id: &str,
     flow_id: &str,
 ) -> Result<Vec<T>, Box<dyn std::error::Error>> {
@@ -216,7 +216,7 @@ async fn fetch_flow<T: DeserializeOwned>(
 
     loop {
         log::debug!("Looking for {} / {} ...", client_id, flow_id);
-        let status = client
+        let status = api_client
             .query::<FlowStatus>(
                 r#"SELECT * from flows(client_id = client_id, flow_id = flow_id)"#,
                 &options,
@@ -232,7 +232,7 @@ async fn fetch_flow<T: DeserializeOwned>(
 
     loop {
         log::debug!("trying to fetch result for {client_id} , {flow_id}");
-        let result = client
+        let result = api_client
             .query::<T>(
                 r#"SELECT * from flow_results(client_id = client_id, flow_id = flow_id)"#,
                 &options,
@@ -279,14 +279,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         _ => return Err("can't use config and instance simultaneously".into()),
     };
 
-    let client = Client::try_from(
-        &ClientConfig::from_yaml_file(&client_yaml)
+    let api_client = APIClient::try_from(
+        &APIClientConfig::from_yaml_file(&client_yaml)
             .map_err(|e| format!("read config: {} {}", client_yaml.to_string_lossy(), e))?,
     )?;
 
     match cli.sub {
         SubCommand::Query(ref cmd) => {
-            let result = client
+            let result = api_client
                 .query::<serde_json::Value>(
                     &cmd.query,
                     &QueryOptions::new()
@@ -302,11 +302,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sub: ClientSubCommand::Query(ref cmd),
         }) => {
             let flow_id =
-                schedule_flow(&client, &client_id, "Generic.Client.VQL", &cmd.query).await?;
+                schedule_flow(&api_client, &client_id, "Generic.Client.VQL", &cmd.query).await?;
             log::debug!("Flow ID: {}", flow_id);
             // FIXME: Use select?
             // FIXME: Use SELECT state FROM flows()?
-            let log = fetch_flow_log(&client, &client_id, &flow_id).await?;
+            let log = fetch_flow_log(&api_client, &client_id, &flow_id).await?;
             let mut err = false;
             for entry in log {
                 if entry.level == "ERROR" || entry.level == "WARN" {
@@ -327,7 +327,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             if err {
                 return Err(format!("Flow {} failed.", &flow_id).into());
             }
-            let result: Vec<serde_json::Value> = fetch_flow(&client, &client_id, &flow_id).await?;
+            let result: Vec<serde_json::Value> = fetch_flow(&api_client, &client_id, &flow_id).await?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
         SubCommand::Client(ClientCmd {
@@ -335,9 +335,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sub: ClientSubCommand::Cmd(ref cmd),
         }) => {
             let flow_id =
-                schedule_flow(&client, &client_id, "Windows.System.CmdShell", &cmd.command).await?;
+                schedule_flow(&api_client, &client_id, "Windows.System.CmdShell", &cmd.command).await?;
             log::debug!("Flow ID: {}", flow_id);
-            fetch_flow(&client, &client_id, &flow_id)
+            fetch_flow(&api_client, &client_id, &flow_id)
                 .await?
                 .into_iter()
                 .fold::<ShellResult, _>(ShellResult::default(), |acc, item: ShellResult| {
@@ -354,9 +354,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sub: ClientSubCommand::Bash(ref cmd),
         }) => {
             let flow_id =
-                schedule_flow(&client, &client_id, "Linux.Sys.BashShell", &cmd.command).await?;
+                schedule_flow(&api_client, &client_id, "Linux.Sys.BashShell", &cmd.command).await?;
             log::debug!("Flow ID: {}", flow_id);
-            fetch_flow::<ShellResult>(&client, &client_id, &flow_id)
+            fetch_flow::<ShellResult>(&api_client, &client_id, &flow_id)
                 .await?
                 .into_iter()
                 .fold::<ShellResult, _>(ShellResult::default(), |acc, item: ShellResult| {
@@ -373,14 +373,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sub: ClientSubCommand::Powershell(ref cmd),
         }) => {
             let flow_id = schedule_flow(
-                &client,
+                &api_client,
                 &client_id,
                 "Windows.System.PowerShell",
                 &cmd.command,
             )
             .await?;
             log::debug!("Flow ID: {}", flow_id);
-            fetch_flow(&client, &client_id, &flow_id)
+            fetch_flow(&api_client, &client_id, &flow_id)
                 .await?
                 .into_iter()
                 .fold::<ShellResult, _>(ShellResult::default(), |acc, item: ShellResult| {
@@ -393,7 +393,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .do_output()?;
         }
         SubCommand::Fetch(ref cmd) => {
-            let buf = client.fetch(&cmd.path).await?;
+            let buf = api_client.fetch(&cmd.path).await?;
 
             let mut output = std::fs::File::create(&cmd.output_file)?;
             output.write_all(&buf)?;
