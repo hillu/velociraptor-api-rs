@@ -174,13 +174,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client: client_id,
             sub: ClientSubCommand::Query(ref cmd),
         }) => {
-            let flow_id = api_client
-                .schedule_client_flow(&client_id, "Generic.Client.VQL", &cmd.query)
+            let client = api_client.new_client_unchecked(&client_id);
+            let flow = client
+                .schedule_flow("Generic.Client.VQL", &cmd.query)
                 .await?;
-            log::debug!("Flow ID: {}", flow_id);
+            log::debug!("Flow ID: {}", flow);
             // FIXME: Use select?
             // FIXME: Use SELECT state FROM flows()?
-            let log = api_client.fetch_client_flow_log( &client_id, &flow_id).await?;
+            let log = flow.fetch_log().await?;
             let mut err = false;
             for entry in log {
                 let timestamp =
@@ -200,20 +201,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             if err {
-                return Err(format!("Flow {} failed.", &flow_id).into());
+                return Err(format!("Flow {} failed.", &flow).into());
             }
-            let result: Vec<serde_json::Value> = api_client.fetch_client_flow( &client_id, &flow_id).await?;
+            let result: Vec<serde_json::Value> = flow.fetch().await?;
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
         SubCommand::Client(ClientCmd {
             client: client_id,
             sub: ClientSubCommand::Cmd(ref cmd),
         }) => {
-            let flow_id = api_client
-                .schedule_client_flow(&client_id, "Windows.System.CmdShell", &cmd.command)
+            let client = api_client.new_client_unchecked(&client_id);
+            let flow = client
+                .schedule_flow("Windows.System.CmdShell", &cmd.command)
                 .await?;
-            log::debug!("Flow ID: {}", flow_id);
-            api_client.fetch_client_flow( &client_id, &flow_id)
+            log::debug!("Flow ID: {}", flow);
+            flow.fetch()
                 .await?
                 .into_iter()
                 .fold::<ShellResult, _>(ShellResult::default(), |acc, item: ShellResult| {
@@ -229,11 +231,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client: client_id,
             sub: ClientSubCommand::Bash(ref cmd),
         }) => {
-            let flow_id = api_client
-                .schedule_client_flow(&client_id, "Linux.Sys.BashShell", &cmd.command)
+            let client = api_client.new_client_unchecked(&client_id);
+            let flow = client
+                .schedule_flow("Linux.Sys.BashShell", &cmd.command)
                 .await?;
-            log::debug!("Flow ID: {}", flow_id);
-            api_client.fetch_client_flow::<ShellResult>(&client_id, &flow_id)
+            log::debug!("Flow ID: {}", flow);
+            flow.fetch()
                 .await?
                 .into_iter()
                 .fold::<ShellResult, _>(ShellResult::default(), |acc, item: ShellResult| {
@@ -249,11 +252,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             client: client_id,
             sub: ClientSubCommand::Powershell(ref cmd),
         }) => {
-            let flow_id = api_client
-                .schedule_client_flow(&client_id, "Windows.System.PowerShell", &cmd.command)
+            let client = api_client.new_client_unchecked(&client_id);
+            let flow = client
+                .schedule_flow("Windows.System.PowerShell", &cmd.command)
                 .await?;
-            log::debug!("Flow ID: {}", flow_id);
-            api_client.fetch_client_flow( &client_id, &flow_id)
+            log::debug!("Flow ID: {}", flow);
+            flow.fetch()
                 .await?
                 .into_iter()
                 .fold::<ShellResult, _>(ShellResult::default(), |acc, item: ShellResult| {

@@ -180,12 +180,32 @@ impl APIClient {
         Ok(buf)
     }
 
-    pub async fn schedule_client_flow(
+    pub fn new_client_unchecked(&self, id: &str) -> Client {
+        Client {
+            api_client: self,
+            client_id: id.to_string(),
+        }
+    }
+}
+
+/// Representation of a Velociraptor client
+pub struct Client<'a> {
+    api_client: &'a APIClient,
+    client_id: String,
+}
+
+impl std::fmt::Display for Client<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self.client_id)
+    }
+}
+
+impl Client<'_> {
+    pub async fn schedule_flow(
         &self,
-        client_id: &str,
         artifact: &str,
         cmd: &str,
-    ) -> Result<String, Box<dyn std::error::Error>> {
+    ) -> Result<ClientFlow, Box<dyn std::error::Error>> {
         #[derive(Deserialize)]
         struct Request {
             flow_id: String,
@@ -196,32 +216,49 @@ impl APIClient {
         }
 
         let env = vec![
-            ("client_id".to_string(), client_id.to_string()),
+            ("client_id".to_string(), self.client_id.to_string()),
             ("artifact".to_string(), artifact.to_string()),
             ("Command".to_string(), cmd.to_string()),
         ];
         let requests: Vec<Submit> = self
+            .api_client
             .query(
                 r#"SELECT
-               collect_client(client_id=client_id,
-                              artifacts=artifact,
-                              env=dict(Command=Command))
-               AS request
-               FROM scope()"#,
+                   collect_client(client_id=client_id,
+                                  artifacts=artifact,
+                                  env=dict(Command=Command))
+                   AS request
+                   FROM scope()"#,
                 &QueryOptions::builder()
                     .env(env.as_slice())
                     .org_id("".to_string())
                     .build(),
             )
             .await?;
-        Ok(requests[0].request.flow_id.clone())
-    }
 
-    pub async fn fetch_client_flow<T: DeserializeOwned>(
-        &self,
-        client_id: &str,
-        flow_id: &str,
-    ) -> Result<Vec<T>, Box<dyn std::error::Error>> {
+        Ok(ClientFlow{
+	    api_client: &self.api_client,
+	    client_id: self.client_id.clone(),
+	    flow_id: requests[0].request.flow_id.clone()
+	})
+    }
+}
+
+/// Representation of a flow scheduled to executed by a Velociraptor client.
+pub struct ClientFlow<'a> {
+    api_client: &'a APIClient,
+    client_id: String,
+    flow_id: String,
+}
+
+impl std::fmt::Display for ClientFlow<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> Result<(), std::fmt::Error> {
+        write!(f, "{}", self.flow_id)
+    }
+}
+
+impl ClientFlow<'_> {
+    pub async fn fetch<T: DeserializeOwned>(&self) -> Result<Vec<T>, Box<dyn std::error::Error>> {
         #[derive(Clone, Default, Deserialize)]
         struct FlowStatus {
             state: String, // UNSET, RUNNING, FINISHED, ERROR
@@ -229,62 +266,70 @@ impl APIClient {
 
         let options = QueryOptions::builder()
             .env(vec![
-                ("client_id".into(), client_id.into()),
-                ("flow_id".into(), flow_id.into()),
+                ("client_id".into(), self.client_id.clone()),
+                ("flow_id".into(), self.flow_id.clone()),
             ])
             .org_id("".to_string())
             .build();
 
         loop {
-            log::debug!("Looking for {} / {} ...", client_id, flow_id);
+            log::debug!("Looking for {} / {} ...", self.client_id, self.flow_id);
             let status = self
+                .api_client
                 .query::<FlowStatus>(
-                    r#"SELECT * from flows(client_id = client_id, flow_id = flow_id)"#,
+                    r#"SELECT * FROM flows(client_id=client_id, flow_id=flow_id)"#,
                     &options,
                 )
                 .await?;
             let state = status.get(0).cloned().unwrap_or_default().state;
-            log::debug!("state( {client_id} , {flow_id} ): {state}");
+            log::debug!(
+                "state( {} / {} ): {}",
+                &self.client_id,
+                &self.flow_id,
+                state
+            );
             if state != "RUNNING" {
                 break;
             }
             sleep(Duration::from_millis(100)).await;
         }
 
+        log::debug!(
+            "Fetching result for {} / {} ...",
+            self.client_id,
+            self.flow_id
+        );
         loop {
-            log::debug!("trying to fetch result for {client_id} , {flow_id}");
             let result = self
+                .api_client
                 .query::<T>(
-                    r#"SELECT * from flow_results(client_id = client_id, flow_id = flow_id)"#,
+                    r#"SELECT * FROM flow_results(client_id=client_id, flow_id=flow_id)"#,
                     &options,
                 )
                 .await?;
             if !result.is_empty() {
-                log::debug!("done!");
+                log::debug!("Done!");
                 return Ok(result);
             }
-            log::debug!("sleep...");
+            log::trace!("zZz...");
             sleep(Duration::from_millis(100)).await;
         }
     }
 
-    pub async fn fetch_client_flow_log(
-        &self,
-        client_id: &str,
-        flow_id: &str,
-    ) -> Result<Vec<FlowLog>, Box<dyn std::error::Error>> {
+    pub async fn fetch_log(&self) -> Result<Vec<FlowLogEntry>, Box<dyn std::error::Error>> {
         let options = QueryOptions::builder()
             .env(vec![
-                ("client_id".into(), client_id.into()),
-                ("flow_id".into(), flow_id.into()),
+                ("client_id".into(), self.client_id.clone()),
+                ("flow_id".into(), self.flow_id.clone()),
             ])
             .org_id("".to_string())
             .build();
-        let mut result: Vec<FlowLog>;
+        let mut result: Vec<FlowLogEntry>;
         loop {
             result = self
+                .api_client
                 .query(
-                    r#"SELECT * from flow_logs(client_id = client_id, flow_id = flow_id)"#,
+                    r#"SELECT * FROM flow_logs(client_id=client_id, flow_id=flow_id)"#,
                     &options,
                 )
                 .await?;
@@ -294,7 +339,9 @@ impl APIClient {
             } else {
                 for r in &result {
                     log::debug!(
-                        "flow_log({client_id}/{flow_id}): {} {}: {}",
+                        "flow_log({}/{}): {} {}: {}",
+                        self.client_id,
+                        self.flow_id,
                         r.client_time,
                         r.level,
                         r.message
@@ -306,8 +353,9 @@ impl APIClient {
     }
 }
 
+/// A single flow log entry
 #[derive(Deserialize)]
-pub struct FlowLog {
+pub struct FlowLogEntry {
     pub client_time: u64,
     pub level: String,
     pub message: String,
