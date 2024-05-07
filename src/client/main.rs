@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let api_client = APIClient::try_from(
         &APIClientConfig::from_yaml_file(&client_yaml)
-            .map_err(|e| format!("read config: {} {}", client_yaml.to_string_lossy(), e))?,
+            .map_err(|e| format!("read config: {} {e}", client_yaml.to_string_lossy()))?,
     )?;
 
     match cli.sub {
@@ -178,7 +178,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let flow = client
                 .schedule_flow("Generic.Client.VQL", &cmd.query)
                 .await?;
-            log::debug!("Flow ID: {}", flow);
+            log::debug!("Flow ID: {flow}");
             // FIXME: Use select?
             // FIXME: Use SELECT state FROM flows()?
             let log = flow.fetch_log().await?;
@@ -186,12 +186,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             for entry in log {
                 let timestamp =
                     time::OffsetDateTime::from_unix_timestamp(entry.client_time as _).unwrap();
-                log::debug!("log: {} {}: {}", timestamp, entry.level, entry.message);
+                log::debug!("log: {timestamp} {}: {}", entry.level, entry.message);
                 if entry.level == "ERROR" || entry.level == "WARN" {
                     writeln!(
                         std::io::stderr(),
-                        "{} {}: {}",
-                        timestamp,
+                        "{timestamp} {}: {}",
                         entry.level,
                         entry.message
                     )?;
@@ -201,7 +200,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             if err {
-                return Err(format!("Flow {} failed.", &flow).into());
+                return Err(format!("Flow {flow} failed.").into());
             }
             let result: Vec<serde_json::Value> = flow.fetch().await?;
             println!("{}", serde_json::to_string_pretty(&result)?);
@@ -214,7 +213,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let flow = client
                 .schedule_flow("Windows.System.CmdShell", &cmd.command)
                 .await?;
-            log::debug!("Flow ID: {}", flow);
+            log::debug!("Flow ID: {flow}");
             flow.fetch()
                 .await?
                 .into_iter()
@@ -235,7 +234,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let flow = client
                 .schedule_flow("Linux.Sys.BashShell", &cmd.command)
                 .await?;
-            log::debug!("Flow ID: {}", flow);
+            log::debug!("Flow ID: {flow}");
             flow.fetch()
                 .await?
                 .into_iter()
@@ -256,7 +255,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let flow = client
                 .schedule_flow("Windows.System.PowerShell", &cmd.command)
                 .await?;
-            log::debug!("Flow ID: {}", flow);
+            log::debug!("Flow ID: {flow}");
             flow.fetch()
                 .await?
                 .into_iter()

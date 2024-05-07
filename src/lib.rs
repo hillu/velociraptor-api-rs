@@ -157,7 +157,7 @@ impl APIClient {
                 );
             }
             if !msg.log.is_empty() {
-                log::debug!("log = {}", msg.log.to_string().trim());
+                log::debug!("log = {}", msg.log.trim());
                 if msg.log.starts_with("VQL Error:") {
                     return Err(APIClientError::VQL(msg.log));
                 }
@@ -267,7 +267,7 @@ impl Client<'_> {
             .await?;
 
         Ok(ClientFlow {
-            api_client: &self.api_client,
+            api_client: self.api_client,
             client_id: self.client_id.clone(),
             flow_id: requests[0].request.flow_id.clone(),
         })
@@ -311,12 +311,11 @@ impl ClientFlow<'_> {
                     &options,
                 )
                 .await?;
-            let state = status.get(0).cloned().unwrap_or_default().state;
+            let state = status.first().cloned().unwrap_or_default().state;
             log::debug!(
-                "state( {} / {} ): {}",
+                "state( {} / {} ): {state}",
                 &self.client_id,
-                &self.flow_id,
-                state
+                &self.flow_id
             );
             if state != "RUNNING" {
                 break;
