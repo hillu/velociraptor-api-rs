@@ -12,7 +12,6 @@ keywords = ["cli", "api", "forensic", "command-line"]
 categories = ["api-bindings", "command-line-utilities"]
 
 [dependencies]
-builder-pattern = "0.4.2"
 clap = { version = "3", default_features = false, features = ["std", "derive"] }
 dirs = "5"
 env_logger = "0.10"
@@ -25,6 +24,7 @@ time = "0.3"
 tokio = { version = "1", default_features = false, features = ["macros", "rt-multi-thread"] }
 tokio-stream = { version = "0.1", default_features = false }
 tonic = { version = "0.9", features = ["transport", "tls"] }
+typed-builder = "0.18.2"
 
 [build-dependencies]
 tonic-build = "0.9"

@@ -151,7 +151,7 @@ async fn schedule_flow(
                               env=dict(Command=Command))
                AS request
                FROM scope()"#,
-            &QueryOptions::new()
+            &QueryOptions::builder()
                 .env(env.as_slice())
                 .org_id("".to_string())
                 .build(),
@@ -172,7 +172,7 @@ async fn fetch_flow_log(
     client_id: &str,
     flow_id: &str,
 ) -> Result<Vec<FlowLog>, Box<dyn std::error::Error>> {
-    let options = QueryOptions::new()
+    let options = QueryOptions::builder()
         .env(vec![
             ("client_id".into(), client_id.into()),
             ("flow_id".into(), flow_id.into()),
@@ -206,7 +206,7 @@ async fn fetch_flow<T: DeserializeOwned>(
         state: String, // UNSET, RUNNING, FINISHED, ERROR
     }
 
-    let options = QueryOptions::new()
+    let options = QueryOptions::builder()
         .env(vec![
             ("client_id".into(), client_id.into()),
             ("flow_id".into(), flow_id.into()),
@@ -289,8 +289,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             let result = api_client
                 .query::<serde_json::Value>(
                     &cmd.query,
-                    &QueryOptions::new()
-                        .env(cmd.env.as_ref())
+                    &QueryOptions::builder()
+                        .env(cmd.env.clone())
                         .org_id(cmd.org.clone())
                         .build(),
                 )

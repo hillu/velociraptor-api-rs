@@ -2,7 +2,7 @@ use std::path::{Component, Path};
 
 use tokio_stream::StreamExt;
 
-use builder_pattern::Builder;
+use typed_builder::TypedBuilder;
 use serde::{de::DeserializeOwned, Deserialize};
 use tonic::{
     transport::{Certificate, Channel, ClientTlsConfig, Endpoint, Identity, Uri},
@@ -60,19 +60,16 @@ impl TryFrom<&APIClientConfig> for APIClient {
 }
 
 /// Options for the `query` method
-#[derive(Builder)]
+#[derive(TypedBuilder)]
 pub struct QueryOptions {
-    #[public]
-    #[into]
     /// Envirnment variables to be passed along with the query
+    #[builder(default, setter(into))]
     env: Vec<(String, String)>,
-    #[public]
-    #[into]
     /// Organization ID
+    #[builder(default, setter(into))]
     org_id: Option<String>,
     /// Maximum rows to return at a time
-    #[public]
-    #[default(10)]
+    #[builder(default)]
     max_row: u64,
 }
 
