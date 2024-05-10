@@ -160,7 +160,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match cli.sub {
         SubCommand::Query(ref cmd) => {
             let result = api_client
-                .query::<serde_json::Value>(
+                .sync_query::<serde_json::Value>(
                     &cmd.query,
                     &QueryOptions::builder()
                         .env(cmd.env.clone())
